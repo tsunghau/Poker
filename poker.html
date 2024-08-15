@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>撲克牌翻牌機率統計</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        #container {
+            display: flex;
+        }
+        #card {
+            width: 100px;
+            height: 150px;
+            margin-top: 20px;
+        }
+        #frequencyChart {
+            width: 13.5cm !important;
+            height: 13.5cm !important;
+            margin-left: 20px;
+        }
+        table {
+            margin-top: 20px;
+            border-collapse: collapse;
+            width: 100%;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 10px;
+            text-align: center;
+        }
+        .controls {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>撲克牌翻牌機率統計</h1>
+
+    <div class="controls">
+        <button onclick="drawCard()">隨機翻牌</button>
+        <input type="number" id="autoFlipCount" placeholder="輸入自動翻牌次數">
+        <button onclick="autoFlip()">自動翻牌</button>
+        <button onclick="resetData()">清除所有數據</button>
+        <button onclick="redrawChartWithErrors()">重新繪製長條圖（含標準誤）</button>
+    </div>
+    
+    <div id="container">
+        <div>
+            <div>
+                <img id="card" src="" alt="撲克牌">
+            </div>
+            <table id="probabilityTable">
+                <thead>
+                    <tr>
+                        <th>數字</th>
+                        <th>出現次數</th>
+                        <th>機率 (%)</th>
+                        <th>標準誤差 (SE)</th>
+                        <th>累積標準誤差 (±SE)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- 表格內容將由JavaScript生成 -->
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th>總計</th>
+                        <th id="totalFlips">0</th>
+                        <th>100%</th>
+                        <th></th>
+                        <th></th>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <div>
+            <canvas id="frequencyChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        var frequencies = Array(13).fill(0);
+        var totalDraws = 0;
+
+        var cardImages = {
+            1: 'https://deckofcardsapi.com/static/img/AH.png',
+            2: 'https://deckofcardsapi.com/static/img/2H.png',
+            3: 'https://deckofcardsapi.com/static/img/3H.png',
+            4: 'https://deckofcardsapi.com/static/img/4H.png',
+            5: 'https://deckofcardsapi.com/static/img/5H.png',
+            6: 'https://deckofcardsapi.com/static/img/6H.png',
+            7: 'https://deckofcardsapi.com/static/img/7H.png',
+            8: 'https://deckofcardsapi.com/static/img/8H.png',
+            9: 'https://deckofcardsapi.com/static/img/9H.png',
+            10: 'https://deckofcardsapi.com/static/img/0H.png',
+            11: 'https://deckofcardsapi.com/static/img/JH.png',
+            12: 'https://deckofcardsapi.com/static/img/QH.png',
+            13: 'https://deckofcardsapi.com/static/img/KH.png'
+        };
+
+        // 初始化图表
+        var ctx = document.getElementById('frequencyChart').getContext('2d');
+        var frequencyChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'],
+                datasets: [{
+                    label: '數字出現機率 (%)',
+                    data: Array(13).fill(0), // 初始化为0
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 15, // 设置Y轴最大值以更好显示概率
+                        ticks: {
+                            stepSize: 1,
+                            callback: function(value) {
+                                return value + "%"; // 显示为百分比
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: '機率 (%)'
+                        }
+                    }
+                },
+                plugins: {
+                    afterDatasetsDraw: function(chart) {
+                        var ctx = chart.ctx;
+                        ctx.save();
+
+                        // 手动绘制期望值线
+                        var yExpect = chart.scales.y.getPixelForValue(7.69);
+                        ctx.strokeStyle = 'rgba(54, 162, 235, 1)';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([5, 5]);
+
+                        ctx.beginPath();
+                        ctx.moveTo(chart.scales.x.left, yExpect);
+                        ctx.lineTo(chart.scales.x.right, yExpect);
+                        ctx.stroke();
+
+                        // 手动绘制误差线
+                        chart.data.datasets[0].data.forEach((value, index) => {
+                            var x = chart.getDatasetMeta(0).data[index].x;
+                            var y = chart.getDatasetMeta(0).data[index].y;
+                            var se = chart.data.datasets[0].errorBars[index];
+
+                            ctx.strokeStyle = 'rgba(255, 99, 132, 1)';
+                            ctx.lineWidth = 1;
+
+                            ctx.beginPath();
+                            ctx.moveTo(x, y - se);
+                            ctx.lineTo(x, y + se);
+                            ctx.stroke();
+
+                            // 绘制误差线两端的小横线
+                            ctx.beginPath();
+                            ctx.moveTo(x - 3, y - se);
+                            ctx.lineTo(x + 3, y - se);
+                            ctx.moveTo(x - 3, y + se);
+                            ctx.lineTo(x + 3, y + se);
+                            ctx.stroke();
+                        });
+
+                        ctx.restore();
+                    }
+                }
+            }
+        });
+
+        function drawCard() {
+            var cardNumber = Math.floor(Math.random() * 13) + 1;
+            frequencies[cardNumber - 1]++;
+            totalDraws++;
+
+            var cardImg = document.getElementById('card');
+            cardImg.src = cardImages[cardNumber];
+
+            cardImg.onload = function() {
+                updateChart();
+                updateProbabilityTable();
+            };
+        }
+
+        function updateProbabilityTable() {
+            var tableBody = document.querySelector('#probabilityTable tbody');
+            tableBody.innerHTML = ''; // 清空表格内容
+
+            frequencies.forEach(function(frequency, index) {
+                var probability = ((frequency / totalDraws) * 100).toFixed(2); // 计算概率
+                var p = frequency / totalDraws;
+                var se = (totalDraws > 0) ? Math.sqrt(p * (1 - p) / totalDraws) * 100 : 0;
+                var row = `<tr>
+                    <td>${['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'][index]}</td>
+                    <td>${frequency}</td>
+                    <td>${probability}</td>
+                    <td>${se.toFixed(2)}</td>
+                    <td>±${se.toFixed(2)}</td>
+                </tr>`;
+                tableBody.insertAdjacentHTML('beforeend', row);
+            });
+
+            document.getElementById('totalFlips').textContent = totalDraws;
+        }
+
+        function updateChart() {
+            var probabilities = frequencies.map(function(frequency) {
+                return (frequency / totalDraws) * 100; // 计算概率
+            });
+
+            frequencyChart.data.datasets[0].data = probabilities; // 更新为概率
+            frequencyChart.update();
+        }
+
+        function autoFlip() {
+            var count = parseInt(document.getElementById('autoFlipCount').value);
+            if (isNaN(count) || count <= 0) {
+                alert("請輸入有效的自動翻牌次數");
+                return;
+            }
+
+            for (let i = 0; i < count; i++) {
+                setTimeout(drawCard, i * 50); // 延迟50毫秒，每次翻牌
+            }
+        }
+
+        function resetData() {
+            frequencies.fill(0);
+            totalDraws = 0;
+            updateChart();
+            updateProbabilityTable();
+            var cardImg = document.getElementById('card');
+            cardImg.src = ''; // 清除扑克牌图片
+        }
+
+        // 添加新的功能：重新绘制包含误差线的长条图
+        function redrawChartWithErrors() {
+            var probabilities = frequencies.map(function(frequency) {
+                return (frequency / totalDraws) * 100; // 计算概率
+            });
+
+            var seData = frequencies.map(function(frequency) {
+                var p = frequency / totalDraws;
+                // 注意：SE需要在0到100%范围内进行计算，但最终绘制在Y轴上
+                var se = (totalDraws > 0) ? Math.sqrt(p * (1 - p) / totalDraws) * 100 : 0;
+                return se;
+            });
+
+            frequencyChart.data.datasets[0].data = probabilities; // 更新为概率
+            frequencyChart.data.datasets[0].errorBars = seData; // 保存误差数据
+
+            // 确保图表已经完全渲染
+            setTimeout(function() {
+                var ctx = frequencyChart.ctx;
+
+                // 手动绘制期望值线
+                var yExpect = frequencyChart.scales.y.getPixelForValue(7.69);
+                ctx.save();
+                ctx.strokeStyle = 'rgba(54, 162, 235, 1)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+
+                ctx.beginPath();
+                ctx.moveTo(frequencyChart.scales.x.left, yExpect);
+                ctx.lineTo(frequencyChart.scales.x.right, yExpect);
+                ctx.stroke();
+
+                // 手动绘制误差线
+                seData.forEach((se, index) => {
+                    var x = frequencyChart.getDatasetMeta(0).data[index].x;
+                    var y = frequencyChart.getDatasetMeta(0).data[index].y;
+                    var seHeight = frequencyChart.scales.y.getPixelForValue(probabilities[index]) - frequencyChart.scales.y.getPixelForValue(probabilities[index] - se);
+
+                    ctx.strokeStyle = 'rgba(255, 99, 132, 1)';
+                    ctx.lineWidth = 1;
+
+                    ctx.beginPath();
+                    ctx.moveTo(x, y - seHeight);
+                    ctx.lineTo(x, y + seHeight);
+                    ctx.stroke();
+
+                    // 绘制误差线两端的小横线
+                    ctx.beginPath();
+                    ctx.moveTo(x - 3, y - seHeight);
+                    ctx.lineTo(x + 3, y - seHeight);
+                    ctx.moveTo(x - 3, y + seHeight);
+                    ctx.lineTo(x + 3, y + seHeight);
+                    ctx.stroke();
+                });
+
+                ctx.restore();
+            }, 500); // 等待图表渲染完成后再手动绘制
+
+            frequencyChart.update();
+        }
+    </script>
+</body>
+</html>
